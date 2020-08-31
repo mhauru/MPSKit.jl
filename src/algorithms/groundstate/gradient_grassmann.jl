@@ -30,9 +30,11 @@ instance manually and pass it as `method`.
 struct GradientGrassmann <: Algorithm
     method::OptimKit.OptimizationAlgorithm
     finalize!::Function
+    precondition::Function
 
     function GradientGrassmann(; method = ConjugateGradient,
                                finalize! = OptimKit._finalize!,
+                               precondition = :statespace,
                                tol = Defaults.tol,
                                maxiter = Defaults.maxiter,
                                verbosity = 2)
@@ -46,7 +48,15 @@ struct GradientGrassmann <: Algorithm
             msg = "method should be either an instance or a subtype of OptimKit.OptimizationAlgorithm."
             throw(ArgumentError(msg))
         end
-        return new(m, finalize!)
+        if precondition === :statespace
+            precfunc = GrassmannMPS.precondition
+        elseif precondition === :localhess
+            precfunc = GrassmannMPS.precondition_localhess
+        else
+            msg = "Unknown preconditioning methods: $precondition"
+            throw(ArgumentError(msg))
+        end
+        return new(m, finalize!, precfunc)
     end
 end
 
@@ -60,7 +70,7 @@ function find_groundstate(state, H::Hamiltonian, alg::GradientGrassmann,
                    scale! = GrassmannMPS.scale!,
                    add! = GrassmannMPS.add!,
                    finalize! = alg.finalize!,
-                   precondition = GrassmannMPS.precondition,
+                   precondition = alg.precondition,
                    isometrictransport = true)
     (x, fx, gx, numfg, normgradhistory) = res
     (state, pars) = x
@@ -174,5 +184,87 @@ function precondition(x, g)
               for (d, crinv, a) in zip(g, crinvs, state.AL)]
     return g_prec
 end
+
+"""
+Precondition a given Grassmann tangent `g` at state `x` by the local Hessian.
+"""
+function precondition_localhess(x, g)
+    (state, pars) = x
+    delta = min(real(one(eltype(state.AL[1]))), inner(x, g, g))
+    gamma = 1e-8
+    innr(x, y) = sum(Grassmann.inner(ali, xi, yi) for (ali, xi, yi) in zip(state.AL, x, y))
+    Bs = [localhess(state, pars, v) for v in 1:length(state.AL)]
+    B(x) = [Bi(xi) for (Bi, xi) in zip(Bs, x)]
+    g_prec = truncated_newton(g, B, innr, delta, gamma)
+    return g_prec
+end
+
+"""
+    localhess(state, pars, v)
+
+Return a function that is the linear operator for the "local" Hessian term, i.e.
+```
+           ┌──A──┐
+ ──A──     │  │  │
+   │   ->  l──H──r
+           │  │  │
+           └─   ─┘
+```
+projected onto the Grassmann tangent space. `A` is a tangent vector for the MPS tensor in
+left-canonical form. `v` is the the site that `A` is at.
+"""
+function localhess(state, pars, v)
+    function f(al_tan)
+        ac = al_tan[] * state.CR[v]
+        hessac = ac_prime(ac, v, state, pars)
+        hessal = hessac * state.CR[v]'
+        hessal_tan = Grassmann.project!(hessal, state.AL[v])
+        return hessal_tan
+    end
+    return f
+end
+
+"""
+    truncated_newton(p0, B, inner, delta=0, gamma=0, maxiter=100; verbosity=0)
+
+Solve the equation (B + gamma I) x = p0 for x, using a linear conjugate gradient algorithm
+that aborts and returns the current iterate if at any point inner(x, B x) <= gamma.
+
+The termination threshold for the residual is high, `ϵ = min(0.5, norm(p0)) * norm(p0)` .
+`inner` is the inner product function, `maxiter` and `verbosity` should be obvious.
+"""
+function truncated_newton(p0, B, inner, delta=0, gamma=0, maxiter=100; verbosity=0)
+    counter = 0
+    d = p0
+    r = -p0
+    z = zero.(p0)
+    rr = inner(r, r)
+    rnorm = sqrt(abs(rr))
+    ϵ = min(0.5, sqrt(rnorm)) * rnorm
+    while counter < maxiter
+        Bd = B(d) + delta*d
+        dBd = inner(d, Bd)
+        if dBd <= gamma
+            if verbosity > 2
+                @info "Truncated Newton got a negative Hessian element after $counter steps"
+            end
+            return counter == 0 ? p0 : z
+        end
+        α = rr / dBd
+        z = z + α * d
+        r = r + α * Bd
+        rrold = rr
+        rr = inner(r, r)
+        sqrt(abs(rr)) < ϵ && break
+        β = rr / rrold
+        d = -r + β*d
+        counter += 1
+    end
+    verbosity > 2 && @info "Truncated Newton done in $counter steps"
+    return z
+end
+
+# TODO This belongs in TensorKitManifolds
+Base.zero(t::Grassmann.GrassmannTangent) = Grassmann.GrassmannTangent(t.W, zero(t.Z))
 
 end  # module GrassmannMPS
