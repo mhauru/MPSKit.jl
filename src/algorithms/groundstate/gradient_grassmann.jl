@@ -94,7 +94,7 @@ function fg(x)
     # respect to AC times CR'.
     ac_d = [ac_prime(state.AC[v], v, state, pars) for v in 1:length(state)]
     al_d = [d*c' for (d, c) in zip(ac_d, state.CR[1:end])]
-    g = [Grassmann.project(d, a) for (d, a) in zip(al_d, state.AL)]
+    g = [Grassmann.project(2*d, a) for (d, a) in zip(al_d, state.AL)]
     f = real(sum(expectation_value(state, pars.opp, pars)))
     return f, g
 end
@@ -146,7 +146,7 @@ Euclidean inner product between two Grassmann tangents of an infinite MPS.
 function inner(x, g1, g2)
     (state, pars) = x
     tot = sum(Grassmann.inner(a, d1, d2) for (a, d1, d2) in zip(state.AL, g1, g2))
-    return 2*real(tot)
+    return real(tot)
 end
 
 """
