@@ -2,8 +2,9 @@
 GradientGrassmann is an optimisation methdod that keeps the MPS in left-canonical form, and
 treats the tensors as points on Grassmann manifolds. It then applies one of the standard
 gradient optimisation methods, e.g. conjugate gradient, to the MPS, making use of the
-Riemannian manifold structure. A preconditioner is used, so that effectively the metric used
-on the manifold is that given by the Hilbert space inner product.
+Riemannian manifold structure. A preconditioner is used, either so that effectively the
+metric used on the manifold is that given by the Hilbert space inner product, or by applying
+the approximate inverse of the local Hessian, see below.
 
 The arguments to the constructor are
 method = OptimKit.ConjugateGradient
@@ -14,6 +15,10 @@ method = OptimKit.ConjugateGradient
 
 finalize! = OptimKit._finalize!
     A function that gets called once each iteration. See OptimKit for details.
+
+precondition = :statespace
+    Which preconditioner to use. Options are `:statespace` and `:localhess`.
+    TODO explain the options.
 
 tol = Defaults.tol
 maxiter = Defaults.maxiter
@@ -265,6 +270,12 @@ function truncated_newton(p0, B, inner, delta=0, gamma=0, maxiter=100; verbosity
 end
 
 # TODO This belongs in TensorKitManifolds
-Base.zero(t::Grassmann.GrassmannTangent) = Grassmann.GrassmannTangent(t.W, zero(t.Z))
+#Base.zero(t::Grassmann.GrassmannTangent) = Grassmann.GrassmannTangent(t.W, zero(t.Z))
+
+function precondition_vumps(x, g)
+    state, pars = x
+    state_vumps, _, _ = find_groundstate(state, pars.opp, Vumps(; maxiter=1))
+    return g_prec
+end
 
 end  # module GrassmannMPS
