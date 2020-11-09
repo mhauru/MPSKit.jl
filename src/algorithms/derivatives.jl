@@ -3,6 +3,31 @@
 """
     One-site derivative
 """
+function ac_prime(pos::Int, mps::Union{FiniteMPS, InfiniteMPS, MPSComoving}, cache)
+    ham = cache.opp
+
+    ac = mps.AC[pos]
+    VL, VM = codomain(ac)
+    VR = domain(ac)
+    l = leftenv(cache, pos, mps)
+    r = rightenv(cache, pos, mps)
+    m = TensorMap(zeros, eltype(ac), VL*VM*VR', VL*VM*VR')
+    for (i, j) in opkeys(ham, pos)
+        @tensor(
+            m[-1 -2 -3; -4 -5 -6] +=
+            l[i][-1 5 -4] * ham[pos, i, j][5 -2 3 -5] * r[j][-6 3 -3]
+        )
+    end
+    eye = isomorphism(Matrix{eltype(ac)}, VM, VM)
+    for (i, j) in scalkeys(ham, pos)
+        scal = ham.Os[pos, i, j]
+        @tensor(
+            m[-1 -2 -3; -4 -5 -6] += (scal * l[i])[-1 5 -4] * eye[-2 -5] * r[j][-6 5 -3]
+        )
+    end
+    return m
+end
+
 function ac_prime(x::MPSTensor,pos::Int,mps::Union{FiniteMPS,InfiniteMPS,MPSComoving},cache)
     ham=cache.opp
 
