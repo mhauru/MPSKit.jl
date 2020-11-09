@@ -13,27 +13,26 @@ module MPSKit
 
     #useful utility functions?
     export spinmatrices,add_util_leg,full,nonsym_spintensors,nonsym_bosonictensors
-    export max_Ds,virtualspace
+    export max_Ds,virtualspace, reorth!, recalculate!
 
     #hamiltonian things
     export Hamiltonian,Operator,Cache
     export MPOHamiltonian,contains,PeriodicMPO,ComAct,commutator,anticommutator
-    export ac_prime,c_prime,params,ac2_prime,expectation_value,effective_excitation_hamiltonian
+    export ac_prime,c_prime,environments,ac2_prime,expectation_value,effective_excitation_hamiltonian
     export leftenv,rightenv
 
     #algos
-    export find_groundstate, Vumps, Dmrg, Dmrg2, GradDesc, Idmrg1, Idmrg2, GradientGrassmann
-    export leading_boundary, PowerMethod
-    export quasiparticle_excitation
-    export timestep,Tdvp,Tdvp2
-    export splitham,mpo2mps,mps2mpo,infinite_temperature
-    export changebonds,VumpsSvdCut,OptimalExpand,SvdCut,UnionTrunc
+    export find_groundstate!, find_groundstate, Vumps, Dmrg, Dmrg2, GradDesc, Idmrg1, Idmrg2, GradientGrassmann
+    export leading_boundary!, leading_boundary, PowerMethod
+    export quasiparticle_excitation, correlation_length
+    export timestep!,timestep,Tdvp,Tdvp2
+    export splitham,mpo2mps,mps2mpo,infinite_temperature, entanglement_spectrum, transfer_spectrum, variance
+    export changebonds!,changebonds,VumpsSvdCut,OptimalExpand,SvdCut,UnionTrunc
     export entropy
     export dynamicaldmrg
     export fidelity_susceptibility
 
-    #models
-    export nonsym_xxz_ham,nonsym_ising_ham,su2_xxx_ham,nonsym_ising_mpo,u1_xxz_ham,su2u1_grossneveu
+    @deprecate params(args...) environments(args...)
 
     #default settings
     module Defaults
@@ -42,7 +41,7 @@ module MPSKit
         const tolgauge = 1e-14
         const tol = 1e-12
         const verbose = true
-        _finalize(iter,state,opp,pars) = (state,pars,true);
+        _finalize!(iter,state,opp,envs) = (state,envs,true);
     end
 
     include("utility/periodicarray.jl")
@@ -57,6 +56,7 @@ module MPSKit
     include("states/comoving.jl")
     include("states/orthoview.jl")
     include("states/quasiparticle_state.jl")
+    include("states/ortho.jl")
 
     abstract type Operator end
     abstract type Hamiltonian <: Operator end
@@ -79,13 +79,12 @@ module MPSKit
 
     include("algorithms/derivatives.jl")
     include("algorithms/expval.jl")
-    include("algorithms/toolbox.jl") #maybe move to utility, or move some utility functions to toolbox?
-    include("algorithms/ortho.jl")
+    include("algorithms/toolbox.jl")
 
     include("algorithms/changebonds/optimalexpand.jl")
     include("algorithms/changebonds/vumpssvd.jl")
     include("algorithms/changebonds/svdcut.jl")
-    include("algorithms/changebonds/union.jl")
+    include("algorithms/changebonds/changebonds.jl")
 
     include("algorithms/timestep/tdvp.jl")
 
@@ -102,8 +101,4 @@ module MPSKit
     include("algorithms/statmech/power.jl")
 
     include("algorithms/fidelity_susceptibility.jl")
-
-    include("models/xxz.jl")
-    include("models/ising.jl")
-    include("models/grossneveu.jl")
 end

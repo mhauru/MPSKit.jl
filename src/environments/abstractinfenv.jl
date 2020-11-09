@@ -4,37 +4,7 @@
 "
 abstract type AbstractInfEnv <: Cache end;
 
-function leftenv(pars::AbstractInfEnv,pos::Int,state)
-    check_recalculate!(pars,state)
-    pars.lw[pos,:]
-end
-
-function rightenv(pars::AbstractInfEnv,pos::Int,state)
-    check_recalculate!(pars,state)
-    pars.rw[pos,:]
-end
-
-function leftenv(pars::AbstractInfEnv,row::Int,col::Int,state)
-    check_recalculate!(pars,state)
-    pars.lw[row,col]
-end
-
-function rightenv(pars::AbstractInfEnv,row::Int,col::Int,state)
-    check_recalculate!(pars,state)
-    pars.rw[row,col]
-end
-
-function poison!(pars::AbstractInfEnv)
-    pars.dependency = similar(pars.dependency);
-end
-
-function check_recalculate!(pars::AbstractInfEnv,state)
-    if !(pars.dependency === state)
-        lock(pars.lock);
-
-        #we have acquired the lock; maybe state has already been updated?
-        !(pars.dependency === state) && recalculate!(pars,state)
-
-        unlock(pars.lock);
-    end
-end
+leftenv(envs::AbstractInfEnv,pos::Int,state) = envs.lw[pos,:]
+rightenv(envs::AbstractInfEnv,pos::Int,state) = envs.rw[pos,:]
+leftenv(envs::AbstractInfEnv,row::Int,col::Int,state) = envs.lw[row,col]
+rightenv(envs::AbstractInfEnv,row::Int,col::Int,state) = envs.rw[row,col]

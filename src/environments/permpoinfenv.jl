@@ -1,3 +1,4 @@
+#todo : this is a bit of a third-rate citizen, should be cleaned up
 "
     This object manages the periodic mpo environments for an MPSMultiline
 "
@@ -10,24 +11,27 @@ mutable struct PerMPOInfEnv{H<:PeriodicMPO,V,S<:MPSMultiline} <: AbstractInfEnv
 
     lw :: PeriodicArray{V,2}
     rw :: PeriodicArray{V,2}
-
-    lock :: ReentrantLock
 end
 
 #this is really lazy
-function recalculate!(pars::PerMPOInfEnv,nstate)
-    ndat = params(nstate,pars.opp,pars.lw,pars.rw,tol=pars.tol,maxiter=pars.maxiter);
+function recalculate!(envs::PerMPOInfEnv,nstate)
+    sameDspace = reduce((prev,i) -> prev && _lastspace(envs.lw[i...]) == _firstspace(nstate.CR[i...])',
+        Iterators.product(1:size(nstate,1),1:size(nstate,2)),init=true);
 
-    pars.lw = ndat.lw
-    pars.rw = ndat.rw
-    pars.dependency = ndat.dependency;
+    ndat = environments(nstate,envs.opp,sameDspace ? envs.lw : nothing,sameDspace ? envs.rw : nothing,tol=envs.tol,maxiter=envs.maxiter);
+
+    envs.lw = ndat.lw
+    envs.rw = ndat.rw
+    envs.dependency = ndat.dependency;
+
+    envs
 end
 
-function params(state::InfiniteMPS,opp::PeriodicMPO,prevl = nothing,prevr = nothing;tol = Defaults.tol,maxiter=Defaults.maxiter)
-    params(convert(MPSMultiline,state),opp,prevl,prevr,tol=tol,maxiter=maxiter);
+function environments(state::InfiniteMPS,opp::PeriodicMPO,prevl = nothing,prevr = nothing;tol = Defaults.tol,maxiter=Defaults.maxiter)
+    environments(convert(MPSMultiline,state),opp,prevl,prevr,tol=tol,maxiter=maxiter);
 end
 
-function params(state::MPSMultiline{T},mpo::PeriodicMPO,prevl = nothing,prevr = nothing;tol = Defaults.tol,maxiter=Defaults.maxiter) where T
+function environments(state::MPSMultiline{T},mpo::PeriodicMPO,prevl = nothing,prevr = nothing;tol = Defaults.tol,maxiter=Defaults.maxiter) where T
     (numrows,numcols) = size(state)
     @assert size(state) == size(mpo)
 
@@ -48,9 +52,9 @@ function params(state::MPSMultiline{T},mpo::PeriodicMPO,prevl = nothing,prevr = 
 
         alg=Arnoldi(tol = tol,maxiter=maxiter)
 
-        (vals,Ls,convhist) = eigsolve(x-> transfer_left(x,mpo.opp[cr,:],state.AL[cr,1:end],state.AL[cr+1,1:end]),L0,1,:LM,alg)
+        (vals,Ls,convhist) = eigsolve(x-> transfer_left(x,mpo.opp[cr,:],state.AL[cr,:],state.AL[cr+1,:]),L0,1,:LM,alg)
         convhist.converged < 1 && @info "left eigenvalue failed to converge $(convhist.normres)"
-        (_,Rs,convhist) = eigsolve(x-> transfer_right(x,mpo.opp[cr,:],state.AR[cr,1:end],state.AR[cr+1,1:end]),R0,1,:LM,alg)
+        (_,Rs,convhist) = eigsolve(x-> transfer_right(x,mpo.opp[cr,:],state.AR[cr,:],state.AR[cr+1,:]),R0,1,:LM,alg)
         convhist.converged < 1 && @info "right eigenvalue failed to converge $(convhist.normres)"
 
 
@@ -74,5 +78,5 @@ function params(state::MPSMultiline{T},mpo::PeriodicMPO,prevl = nothing,prevr = 
 
     end
 
-    return PerMPOInfEnv(mpo,state,tol,maxiter,lefties,righties,ReentrantLock())
+    return PerMPOInfEnv(mpo,state,tol,maxiter,lefties,righties)
 end

@@ -76,11 +76,11 @@ function FiniteMPS(f, elt, physspaces::Vector{<:Union{S,CompositeSpace{S}}}, max
     virtspaces = Vector{S}(undef, N+1)
     virtspaces[1] = left
     for k = 2:N
-        virtspaces[k] = infinum(fuse(virtspaces[k-1], fuse(physspaces[k])), maxvirtspace)
+        virtspaces[k] = infimum(fuse(virtspaces[k-1], fuse(physspaces[k])), maxvirtspace)
     end
     virtspaces[N+1] = right
     for k = N:-1:2
-        virtspaces[k] = infinum(virtspaces[k], fuse(virtspaces[k+1], flip(fuse(physspaces[k]))))
+        virtspaces[k] = infimum(virtspaces[k], fuse(virtspaces[k+1], flip(fuse(physspaces[k]))))
     end
     return FiniteMPS(f, elt,physspaces, virtspaces)
 end
@@ -138,8 +138,8 @@ Base.length(psi::FiniteMPS) = length(psi.ALs)
 Base.size(psi::FiniteMPS, i...) = size(psi.ALs, i...)
 
 #conflicted if this is actually true
-Base.eltype(st::FiniteMPS{A}) where {A<:GenericMPSTensor} = A
-Base.eltype(::Type{FiniteMPS{A}}) where {A<:GenericMPSTensor} = A
+Base.eltype(st::FiniteMPS{A,B}) where {A<:GenericMPSTensor,B} = A
+Base.eltype(::Type{FiniteMPS{A,B}}) where {A<:GenericMPSTensor,B} = A
 bond_type(::Type{FiniteMPS{Mtype,Vtype}}) where {Mtype<:GenericMPSTensor,Vtype<:MPSBondTensor} = Vtype
 
 TensorKit.space(psi::FiniteMPS{<:MPSTensor}, n::Integer) = space(psi.AC[n], 2)

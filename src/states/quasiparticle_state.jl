@@ -4,7 +4,7 @@ I think it makes sense to see these things as an actual state instead of return 
 This will allow us to plot energy density (finite qp) and measure observeables.
 =#
 
-struct FiniteQP{S<:FiniteMPS,T1,T2}
+struct FiniteQP{S<:Union{MPSComoving,FiniteMPS},T1,T2}
     # !(left_gs === right_gs) => domain wall excitation
     left_gs::S
     right_gs::S
@@ -14,8 +14,9 @@ struct FiniteQP{S<:FiniteMPS,T1,T2}
 
 end
 
-function rand_quasiparticle(left_gs::FiniteMPS,right_gs=left_gs;excitation_space=oneunit(virtualspace(left_gs,1)))
+function rand_quasiparticle(left_gs::Union{MPSComoving,FiniteMPS},right_gs=left_gs;sector=first(sectors(oneunit(virtualspace(left_gs,1)))))
     #find the left null spaces for the TNS
+    excitation_space = ℂ[sector=>1];
     VLs = [adjoint(rightnull(adjoint(v))) for v in left_gs.AL]
     Xs = [TensorMap(rand,eltype(left_gs.AL[1]),space(VLs[loc],3)',excitation_space'*space(right_gs.AR[ loc],3)') for loc in 1:length(left_gs)]
 
@@ -33,8 +34,9 @@ struct InfiniteQP{S<:InfiniteMPS,T1,T2}
     momentum::Float64
 end
 
-function rand_quasiparticle(left_gs::InfiniteMPS,right_gs=left_gs;excitation_space = oneunit(space(left_gs.AL[1],1)),momentum=0.0)
+function rand_quasiparticle(left_gs::InfiniteMPS,right_gs=left_gs;sector = first(sectors(oneunit(virtualspace(left_gs,1)))),momentum=0.0)
     #find the left null spaces for the TNS
+    excitation_space = ℂ[sector=>1];
     VLs = [adjoint(rightnull(adjoint(v))) for v in left_gs.AL]
     Xs = [TensorMap(rand,eltype(left_gs.AL[1]),space(VLs[loc],3)',excitation_space'*space(right_gs.AR[ loc+1],1)) for loc in 1:length(left_gs)]
 
@@ -44,10 +46,11 @@ end
 const QP = Union{InfiniteQP,FiniteQP};
 
 utilleg(v::QP) = space(v.Xs[1],2)
-Base.copy(a::QP) = copyto!(similar(a),a)
-function Base.copyto!(a::QP,b::QP)
+Base.copy(a::QP) = copy!(similar(a),a)
+Base.copyto!(a::QP,b::QP) = copy!(a,b);
+function Base.copy!(a::QP,b::QP)
     for (i,j) in zip(a.Xs,b.Xs)
-        copyto!(i,j)
+        copy!(i,j)
     end
     a
 end
