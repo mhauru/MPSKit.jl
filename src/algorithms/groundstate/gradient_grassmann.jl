@@ -97,7 +97,6 @@ module GrassmannMPS
 
 using ..MPSKit
 using TensorKit
-using LinearAlgebra  # DEBUG (only needed for `diag`)
 import TensorKitManifolds.Grassmann
 
 """
@@ -199,43 +198,16 @@ function precondition_localhess(x, g)
     (state, pars) = x
     gnorm = sqrt(inner(x, g, g))
     delta_cr = min(real(one(eltype(state.AL[1]))), gnorm)
-    #delta_newton = min(1e-2*real(one(eltype(state.AL[1]))), gnorm)
-    #delta_newton = min(1e-2*real(one(eltype(state.AL[1]))), gnorm^2)
-    #delta_newton = 1e-2
     delta_newton = 0.0
-    #delta_newton = 1e0
-    #gamma = 1e-12 * gnorm
     gamma = 0.0
     innr(x, y) = real(sum(dot(xi, yi) for (xi, yi) in zip(x, y)))
 
     crinvs = [MPSKit.reginv(cr, delta_cr) for cr in state.CR[1:end]]
     g_prec = [d[]*crinv' for (d, crinv) in zip(g, crinvs)]
 
-    # DEBUG
-    #ms = [ac_prime(v, state, pars) for v in 1:length(state.AL)]
-    #@show [norm(m - m') for m in ms]
-    ##for m in ms
-    ##    spectrum = sort(diag(convert(Array, eigh(m)[1])))
-    ##    @show spectrum
-    ##end
-    #s = ntuple(length(g_prec)) do i
-    #    xvec = permute(g_prec[i], (1, 2, 3), ())
-    #    scalar(xvec' * ms[i] * xvec) / norm(xvec)
-    #end
-    #@show real.(s)
-    #@show sum(s)
-    # END DEBUG
     Bs = [localhess(state, pars, v) for v in 1:length(state.AL)]
     B(x) = [Bi(xi) for (Bi, xi) in zip(Bs, x)]
     g_prec = truncated_newton(g_prec, B, innr, delta_newton, gamma; verbosity=verbosity)
-    # DEBUG
-    #s = ntuple(length(g_prec)) do i
-    #    xvec = permute(g_prec[i], (1, 2, 3), ())
-    #    scalar(xvec' * ms[i] * xvec) / norm(xvec)
-    #end
-    #@show real.(s)
-    #@show sum(s)
-    # END DEBUG
 
     g_prec = [d*crinv for (d, crinv) in zip(g_prec, crinvs)]
     g_prec = [Grassmann.project(d, a) for (d, a) in zip(g_prec, state.AL)]
@@ -254,16 +226,9 @@ Return a function that is the linear operator for the "local" Hessian term, i.e.
            └─   ─┘
 ```
 projected onto the Grassmann tangent space. `A` is a tangent vector for the MPS tensor in
-left-canonical form. `v` is the the site that `A` is at.
+centre-canonical form. `v` is the the site that `A` is at.
 """
 function localhess(state, pars, v)
-    function fl(al_tan)
-        ac = al_tan[] * state.CR[v]
-        hessac = ac_prime(ac, v, state, pars)
-        hessal = hessac * state.CR[v]'
-        hessal_tan = Grassmann.project!(hessal, state.AL[v])
-        return hessal_tan
-    end
     fc(ac_tan) = ac_prime(ac_tan, v, state, pars)
     return fc
 end
@@ -310,11 +275,5 @@ end
 
 # TODO This belongs in TensorKitManifolds
 Base.zero(t::Grassmann.GrassmannTangent) = Grassmann.GrassmannTangent(t.W, zero(t.Z))
-
-function precondition_vumps(x, g)
-    state, pars = x
-    state_vumps, _, _ = find_groundstate(state, pars.opp, Vumps(; maxiter=1))
-    return g_prec
-end
 
 end  # module GrassmannMPS
