@@ -278,7 +278,4 @@ function truncated_newton(p0, B, inner, delta=0, gamma=0, maxiter=100; verbosity
     return z
 end
 
-# TODO This belongs in TensorKitManifolds
-Base.zero(t::Grassmann.GrassmannTangent) = Grassmann.GrassmannTangent(t.W, zero(t.Z))
-
 end  # module GrassmannMPS
