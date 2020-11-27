@@ -17,7 +17,7 @@ finalize! = OptimKit._finalize!
     A function that gets called once each iteration. See OptimKit for details.
 
 precondition = :statespace
-    Which preconditioner to use. Options are `:statespace` and `:localhess`.
+    Which preconditioner to use. Options are `:statespace`, `:localhess`, and `:neighhess`.
     TODO explain the options.
 
 tol = Defaults.tol
@@ -57,6 +57,8 @@ struct GradientGrassmann <: Algorithm
             precfunc = GrassmannMPS.precondition
         elseif precondition === :localhess
             precfunc = GrassmannMPS.precondition_localhess
+        elseif precondition === :neighhess
+            precfunc = GrassmannMPS.precondition_neighhess
         else
             msg = "Unknown preconditioning methods: $precondition"
             throw(ArgumentError(msg))
@@ -199,28 +201,52 @@ end
 Precondition a given Grassmann tangent `g` at state `x` by the local Hessian.
 """
 function precondition_localhess(x, g)
-    verbosity = 3
-    (state, pars) = x
+    (state, envs) = x
     gnorm = sqrt(inner(x, g, g))
-    delta_cr = min(real(one(eltype(state.AL[1]))), gnorm)
-    delta_newton = 0.0
-    gamma = 0.0
     innr(x, y) = real(sum(dot(xi, yi) for (xi, yi) in zip(x, y)))
 
-    crinvs = [MPSKit.reginv(cr, delta_cr) for cr in state.CR[1:end]]
-    g_prec = [d[]*crinv' for (d, crinv) in zip(g, crinvs)]
+    # TODO Remove the hard-coding of these parameters
+    verbosity = 3
+    #delta_cr = min(real(one(eltype(state.AL[1]))), gnorm)
+    delta_cr = min(1e-2, gnorm)
+    delta_newton = 0.0
+    gamma = 0.0
 
-    Bs = [localhess(state, pars, v) for v in 1:length(state.AL)]
-    B(x) = [Bi(xi) for (Bi, xi) in zip(Bs, x)]
+    # We'll precondition the truncated Newton with an inverse of the CR matrix at each site.
+    # This inverse is regularised with delta_cr.
+    crinvs = [MPSKit.reginv(cr, delta_cr) for cr in state.CR]
+    crinvcrs = [crinv * cr for (cr, crinv) in zip(state.CR, crinvs)]
+
+    # TODO The projection here is actually unnecessary.
+    g_prec = [
+        Grassmann.project!(d[] * crinv', a)
+        for (d, crinv, a) in zip(g, crinvs, state.AL)
+    ]
+
+    Bs = [localhess(state, envs, v) for v in 1:length(state.AL)]
+    # The M and MC matrices are needed for the term in the Hessian arising from the
+    # curvature of the retraction. They, too, are preconditioned by multiplying with crinv.
+    Ms = [c_prime(state.CR[v], v, state, envs) for v in 1:length(state.AL)]
+    MCs = [
+        (crinv * m * crinvcr' + crinvcr * m' * crinv') / 2
+        for (m, crinvcr, crinv) in zip(Ms, crinvcrs, crinvs)
+    ]
+    B(x) = [
+        2 * Grassmann.project!(Bi(xi[] * crinvcr) * crinvcr' - xi[] * mc, a)
+        for (Bi, xi, crinvcr, mc, a) in zip(Bs, x, crinvcrs, MCs, state.AL)
+    ]
     g_prec = truncated_newton(g_prec, B, innr, delta_newton, gamma; verbosity=verbosity)
 
-    g_prec = [d*crinv for (d, crinv) in zip(g_prec, crinvs)]
-    g_prec = [Grassmann.project(d, a) for (d, a) in zip(g_prec, state.AL)]
+    # TODO The projection here is actually unnecessary.
+    g_prec = [
+        Grassmann.project!(d[] * crinv, a)
+        for (d, crinv, a) in zip(g_prec, crinvs, state.AL)
+    ]
     return g_prec
 end
 
 """
-    localhess(state, pars, v)
+    localhess(state, envs, v)
 
 Return a function that is the linear operator for the "local" Hessian term, i.e.
 ```
@@ -230,13 +256,93 @@ Return a function that is the linear operator for the "local" Hessian term, i.e.
            │  │  │
            └─   ─┘
 ```
-projected onto the Grassmann tangent space. `A` is a tangent vector for the MPS tensor in
-centre-canonical form. `v` is the the site that `A` is at.
+`A` is a tangent vector for the MPS tensor in centre-canonical form. `v` is the the site
+that `A` is at.
 """
-function localhess(state, pars, v)
-    fc(ac_tan) = ac_prime(ac_tan, v, state, pars)
-    return fc
+function localhess(state, envs, v)
+    f(ac_tan) = ac_prime(ac_tan, v, state, envs)
+    return f
 end
+
+# TODO Finish the following neighhess stuff.
+#function precondition_neighhess(x, gL)
+#    verbosity = 3
+#    (state, envs) = x
+#    gnorm = sqrt(inner(x, gL, gL))
+#    delta_cr = min(real(one(eltype(state.AL[1]))), gnorm)
+#    gamma = 0.0
+#    delta_newton = 0.0
+#    #gamma = 1e-8*gnorm
+#    #delta_newton = 1e-2
+#    innr(x, y) = real(sum(dot(xi, yi) for (xi, yi) in zip(x, y)))
+#
+#    crinvs = [MPSKit.reginv(cr, delta_cr) for cr in state.CR[1:end]]
+#    gC = [d[]*crinv' for (d, crinv) in zip(gL, crinvs)]
+#    gC = [Grassmann.project(d, a) for (d, a) in zip(gC, state.AL)]
+#
+#    B = neighhess(state, envs, crinvs)
+#    gC_prec = truncated_newton(gC, B, innr, delta_newton, gamma; verbosity=verbosity)
+#
+#    gL_prec = [d[]*crinv for (d, crinv) in zip(gC_prec, crinvs)]
+#    gL_prec = [Grassmann.project(d, a) for (d, a) in zip(gL_prec, state.AL)]
+#    return gL_prec
+#end
+#
+#function neighhess(state, envs, crinvs)
+#    ham = envs.opp
+#    Ms = [c_prime(state.CR[v], v, state, envs) for v in 1:length(state.AL)]
+#    MCs = [(crinv*m + m' * crinv')/2 for (m, crinv) in zip(Ms, crinvs)]
+#    function f(gC)
+#        gC = [g[] for g in gC]
+#        N = length(gC)
+#        gL = [gC[i] * crinvs[i] for i in 1:N]
+#        gR = [
+#            @tensor r[-1 -2; -3] := crinvs[mod1(i-1, N)][-1; 1] * gC[i][1 -2; -3]
+#            for i in 1:N
+#        ]
+#        gC_prec = [ac_prime(gC[pos], pos, state, envs) for pos in 1:N]
+#        for pos in 1:N
+#            l = leftenv(envs, pos, state)
+#            lprev = leftenv(envs, pos-1, state)
+#            r = rightenv(envs, pos, state)
+#            rnext = rightenv(envs, pos+1, state)
+#
+#            posnext = mod1(pos+1, N)
+#            posprev = mod1(pos-1, N)
+#            renv = (
+#                transfer_right(rnext, ham, posnext, gR[posnext], state.AR[posnext])
+#                #+ transfer_right(rnext, ham, posnext, state.AR[posnext], gR[posnext])
+#            )
+#            lenv = (
+#                transfer_left(lprev, ham, posprev, gL[posprev], state.AL[posprev])
+#                #+ transfer_left(lprev, ham, posprev, state.AL[posprev], gL[posprev])
+#            )
+#            # TODO Could use scalkeys and opkeys to speed up.
+#            for (i, j) in MPSKit.keys(ham, pos)
+#                @tensor(
+#                    gC_prec[pos][-1 -2; -3] +=
+#                    lenv[i][-1 5 4] *
+#                    state.AC[pos][4 2 1] *
+#                    ham[pos, i, j][5 -2 3 2] *
+#                    r[j][1 3 -3]
+#                )
+#                @tensor(
+#                    gC_prec[pos][-1 -2; -3] +=
+#                    l[i][-1 5 4] *
+#                    state.AC[pos][4 2 1] *
+#                    ham[pos, i, j][5 -2 3 2] *
+#                    renv[j][1 3 -3]
+#                )
+#            end
+#        end
+#        gC_prec = [
+#            2 * Grassmann.project!(gi_prec - gi * mc, a)
+#            for (gi_prec, mc, gi, a) in zip(gC_prec, MCs, gC, state.AL)
+#        ]
+#        return gC_prec
+#    end
+#    return f
+#end
 
 """
     truncated_newton(p0, B, inner, delta=0, gamma=0, maxiter=100; verbosity=0)
@@ -244,10 +350,10 @@ end
 Solve the equation (B + delta I) x = p0 for x, using a linear conjugate gradient algorithm
 that aborts and returns the current iterate if at any point inner(x, B x) <= gamma.
 
-The termination threshold for the residual is high, `ϵ = min(0.5, norm(p0)) * norm(p0)` .
-`inner` is the inner product function, `maxiter` and `verbosity` should be obvious.
+The termination threshold for the residual is high, `ϵ = min(0.5, norm(p0)) * norm(p0)`.
+`inner` is the inner product function, `maxiter` and `verbosity` are obvious.
 """
-function truncated_newton(p0, B, inner, delta=0, gamma=0, maxiter=100; verbosity=0)
+function truncated_newton(p0, B, inner, delta=0, gamma=0, maxiter=1000; verbosity=0)
     counter = 0
     d = p0
     r = -p0
